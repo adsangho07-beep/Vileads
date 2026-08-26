@@ -19,6 +19,8 @@ import {
   Shield,
   Menu,
   X,
+  Coins,
+  Plus,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -35,6 +37,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ userEmail, userName }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/credits')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data) setCreditBalance(data.balance);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
 
   // Close profile dropdown when clicking outside
   useEffect(() => {
@@ -169,6 +185,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ userEmail, userName }) => {
             );
           })}
         </nav>
+
+        {/* Credit Balance */}
+        <div className="px-4 pb-2">
+          <Link
+            href="/settings?tab=credits"
+            className="flex items-center justify-between gap-2 px-4 py-3 rounded-2xl bg-amber-50 border border-amber-200/80 hover:bg-amber-100/70 transition-colors group"
+          >
+            <div className="flex items-center gap-2.5">
+              <Coins className="w-4 h-4 text-amber-600 shrink-0" />
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-amber-700/80">Crédits</div>
+                <div className="text-sm font-black text-amber-900 leading-tight">
+                  {creditBalance === null ? '—' : creditBalance}
+                </div>
+              </div>
+            </div>
+            <span className="p-1.5 rounded-lg bg-amber-600 text-white group-hover:bg-amber-700 transition-colors">
+              <Plus className="w-3.5 h-3.5" />
+            </span>
+          </Link>
+        </div>
 
         {/* User Profile Card with Popover Trigger */}
         <div className="p-4 border-t border-slate-100 relative" ref={profileRef}>

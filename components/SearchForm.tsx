@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Search, MapPin, Building, Globe, Zap, Loader2, Sparkles } from 'lucide-react';
+import { Search, MapPin, Building, Globe, Zap, Loader2, Sparkles, Coins } from 'lucide-react';
+import { LEAD_SEARCH_CREDIT_COST } from '@/lib/credits';
 
 const AFRICAN_PRESETS = [
   { country: 'Sénégal', city: 'Dakar', flag: '🇸🇳' },
@@ -39,6 +41,7 @@ export const SearchForm: React.FC = () => {
   const [maxResults, setMaxResults] = useState(50);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [insufficientCredits, setInsufficientCredits] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,6 +52,7 @@ export const SearchForm: React.FC = () => {
 
     setLoading(true);
     setError(null);
+    setInsufficientCredits(false);
 
     try {
       const res = await fetch('/api/searches', {
@@ -65,6 +69,9 @@ export const SearchForm: React.FC = () => {
       const data = await res.json();
 
       if (!res.ok || data.error) {
+        if (res.status === 402 || data.code === 'INSUFFICIENT_CREDITS') {
+          setInsufficientCredits(true);
+        }
         throw new Error(data.error || 'Erreur lors du lancement de la recherche.');
       }
 
@@ -97,8 +104,17 @@ export const SearchForm: React.FC = () => {
         </div>
 
         {error && (
-          <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">
-            {error}
+          <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm space-y-2">
+            <p>{error}</p>
+            {insufficientCredits && (
+              <Link
+                href="/settings?tab=credits"
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-800 hover:underline"
+              >
+                <Coins className="w-3.5 h-3.5" />
+                Acheter des crédits
+              </Link>
+            )}
           </div>
         )}
 
@@ -233,6 +249,10 @@ export const SearchForm: React.FC = () => {
             </>
           )}
         </button>
+        <p className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
+          <Coins className="w-3.5 h-3.5" />
+          Cette recherche consommera {LEAD_SEARCH_CREDIT_COST} crédits sur votre solde.
+        </p>
       </div>
     </form>
   );

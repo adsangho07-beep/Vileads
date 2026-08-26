@@ -38,3 +38,7 @@ next-env.d.ts
 # agents config
 .agents/
 
+# temp & mac metadata
+supabase/.temp/
+__MACOSX/
+

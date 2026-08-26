@@ -55,3 +55,41 @@ export interface LeadWithMessages extends DbLead {
 export interface SearchWithStats extends DbSearch {
   leads_count?: number;
 }
+
+export type CreditTransactionType = 'signup_bonus' | 'purchase' | 'consumption' | 'refund';
+export type CreditPurchaseStatus = 'pending' | 'completed' | 'failed' | 'expired';
+
+export interface DbUserCredits {
+  user_id: string;
+  balance: number;
+  updated_at: string;
+}
+
+export interface DbCreditTransaction {
+  id: string;
+  user_id: string;
+  type: CreditTransactionType;
+  amount: number;
+  balance_after: number;
+  reference_type: string | null;
+  reference_id: string | null;
+  description: string | null;
+  created_at: string;
+}
+
+export interface DbCreditPurchase {
+  id: string;
+  user_id: string;
+  package_id: string;
+  credits: number;
+  amount_total: number;
+  currency: string;
+  status: CreditPurchaseStatus;
+  provider: string;
+  provider_transaction_id: string | null;
+  checkout_url: string | null;
+  error_message: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}

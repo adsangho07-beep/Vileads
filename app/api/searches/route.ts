@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { startGooglePlacesScrape } from '@/lib/apify/client';
+import { LEAD_SEARCH_CREDIT_COST } from '@/lib/credits';
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,8 +15,6 @@ export async function POST(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: 'Non authentifié. Veuillez vous connecter.' }, { status: 401 });
     }
-
-    // TODO: quota check here (e.g. check user credits / active subscription)
 
     const body = await request.json();
     const { sector, city, country, max_results = 50 } = body;
@@ -54,7 +53,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. Start Apify Actor asynchronously
+    // 2. Consume credits for this search. The search row already exists so we
+    //    can reference it in the ledger, and can be deleted if credits are insufficient.
+    const { error: creditError } = await supabase.rpc('consume_credits', {
+      p_amount: LEAD_SEARCH_CREDIT_COST,
+      p_reference_type: 'search',
+      p_reference_id: searchRecord.id,
+      p_description: `Recherche ${cleanSector} / ${cleanCity}`,
+    });
+
+    if (creditError) {
+      await supabase.from('searches').delete().eq('id', searchRecord.id);
+
+      if (creditError.message?.includes('INSUFFICIENT_CREDITS')) {
+        return NextResponse.json(
+          {
+            error: `Crédits insuffisants. Cette recherche coûte ${LEAD_SEARCH_CREDIT_COST} crédits.`,
+            code: 'INSUFFICIENT_CREDITS',
+          },
+          { status: 402 }
+        );
+      }
+
+      console.error('Error consuming credits:', creditError);
+      return NextResponse.json({ error: 'Impossible de débiter vos crédits.' }, { status: 500 });
+    }
+
+    // 3. Start Apify Actor asynchronously
     try {
       const apifyRun = await startGooglePlacesScrape({
         sector: cleanSector,
@@ -92,6 +117,16 @@ export async function POST(request: NextRequest) {
           finished_at: new Date().toISOString(),
         })
         .eq('id', searchRecord.id);
+
+      // Refund the credits since the scrape never actually started.
+      await adminClient.rpc('add_credits', {
+        p_user_id: user.id,
+        p_amount: LEAD_SEARCH_CREDIT_COST,
+        p_type: 'refund',
+        p_reference_type: 'search',
+        p_reference_id: searchRecord.id,
+        p_description: 'Remboursement — échec du lancement du scraping Apify',
+      });
 
       return NextResponse.json(
         {
