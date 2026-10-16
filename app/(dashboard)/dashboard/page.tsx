@@ -40,41 +40,41 @@ export default async function DashboardPage() {
   let totalMessagesCount = 0;
 
   if (user) {
-    try {
-      const { data: sList } = await supabase
-        .from('searches')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      searches = sList || [];
-
-      const { data: lList, count: lCount } = await supabase
-        .from('leads')
-        .select('*', { count: 'exact' })
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(6);
-
-      recentLeads = lList || [];
-      totalLeadsCount = lCount || recentLeads.length;
-
-      const { count: mCount } = await supabase
-        .from('messages')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id);
-
-      totalMessagesCount = mCount || 0;
-    } catch {
-      // Fallback below
-    }
-
-    if (searches.length === 0 && user.id === '00000000-0000-0000-0000-000000000001') {
+    if (user.id === '00000000-0000-0000-0000-000000000001') {
       searches = DEMO_SEARCHES;
       recentLeads = DEMO_LEADS;
       totalLeadsCount = 60;
       totalMessagesCount = 18;
+    } else {
+      try {
+        const { data: sList } = await supabase
+          .from('searches')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        searches = sList || [];
+
+        const { data: lList, count: lCount } = await supabase
+          .from('leads')
+          .select('*', { count: 'exact' })
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(6);
+
+        recentLeads = lList || [];
+        totalLeadsCount = lCount || recentLeads.length;
+
+        const { count: mCount } = await supabase
+          .from('messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id);
+
+        totalMessagesCount = mCount || 0;
+      } catch {
+        // Fallback
+      }
     }
   }
 

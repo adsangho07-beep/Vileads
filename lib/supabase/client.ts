@@ -10,14 +10,7 @@ export function createClient() {
   if (typeof document !== 'undefined') {
     const isDemo = document.cookie.includes(DEMO_COOKIE_NAME);
     if (isDemo) {
-      const originalGetUser = client.auth.getUser.bind(client.auth);
-      client.auth.getUser = async (jwt?: string) => {
-        try {
-          const res = await originalGetUser(jwt);
-          if (res.data?.user) return res;
-        } catch {
-          // Ignore network errors in demo mode
-        }
+      client.auth.getUser = async () => {
         return {
           data: { user: DEMO_USER as any },
           error: null,

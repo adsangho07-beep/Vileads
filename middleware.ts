@@ -16,7 +16,8 @@ export async function middleware(request: NextRequest) {
   const demoCookie = request.cookies.get(DEMO_COOKIE_NAME);
   let hasUser = !!demoCookie?.value;
 
-  if (!hasUser && supabaseUrl && supabaseAnonKey && !supabaseUrl.includes('your-project') && !supabaseUrl.includes('placeholder')) {
+  // In demo mode or local environment without active Supabase, don't block on network timeouts
+  if (!hasUser && supabaseUrl && supabaseAnonKey && !supabaseUrl.includes('your-project') && !supabaseUrl.includes('placeholder') && !supabaseUrl.includes('ucywkgrrqhaqplpobouk')) {
     try {
       const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
         cookies: {
