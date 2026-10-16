@@ -23,6 +23,103 @@ export async function GET(
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
     }
 
+    const { getDemoSearch, getDemoLeadsForSearch, updateDemoSearch, addDemoLeads } = await import('@/lib/demo');
+    const isDemo = user.id === '00000000-0000-0000-0000-000000000001';
+    const demoSearch = isDemo ? getDemoSearch(searchId) : undefined;
+
+    if (demoSearch) {
+      if (demoSearch.status === 'succeeded' || demoSearch.status === 'failed') {
+        return NextResponse.json({
+          search: demoSearch,
+          leads: getDemoLeadsForSearch(searchId),
+        });
+      }
+
+      if (demoSearch.apify_run_id) {
+        try {
+          const run = await getScrapeRunStatus(demoSearch.apify_run_id);
+          const runStatus = run.status;
+
+          if (runStatus === 'SUCCEEDED') {
+            const datasetId = run.defaultDatasetId || demoSearch.apify_dataset_id;
+            let normalizedLeads: any[] = [];
+
+            if (datasetId) {
+              const rawItems = await getScrapeDatasetItems(datasetId, demoSearch.max_results || 100);
+              normalizedLeads = rawItems.map((item: any) => {
+                const normalized = normalizeApifyPlace(item);
+                return {
+                  id: `lead-${Math.random().toString(36).substring(2, 9)}`,
+                  search_id: demoSearch.id,
+                  user_id: user.id,
+                  place_id: normalized.place_id,
+                  name: normalized.name,
+                  category: normalized.category,
+                  address: normalized.address,
+                  phone: normalized.phone,
+                  website: normalized.website,
+                  rating: normalized.rating,
+                  reviews_count: normalized.reviews_count,
+                  latitude: normalized.latitude,
+                  longitude: normalized.longitude,
+                  raw: normalized.raw,
+                  created_at: new Date().toISOString(),
+                };
+              });
+
+              if (normalizedLeads.length > 0) {
+                addDemoLeads(normalizedLeads);
+              }
+            }
+
+            updateDemoSearch(demoSearch.id, {
+              status: 'succeeded',
+              finished_at: new Date().toISOString(),
+            });
+
+            return NextResponse.json({
+              search: {
+                ...demoSearch,
+                status: 'succeeded',
+                finished_at: new Date().toISOString(),
+              },
+              leads: getDemoLeadsForSearch(searchId),
+            });
+          }
+
+          if (['FAILED', 'TIMED-OUT', 'ABORTED'].includes(runStatus)) {
+            updateDemoSearch(demoSearch.id, {
+              status: 'failed',
+              error_message: `Le scraping Apify a échoué (${runStatus})`,
+              finished_at: new Date().toISOString(),
+            });
+
+            return NextResponse.json({
+              search: {
+                ...demoSearch,
+                status: 'failed',
+                error_message: `Le scraping Apify a échoué (${runStatus})`,
+              },
+              leads: [],
+            });
+          }
+
+          return NextResponse.json({
+            search: {
+              ...demoSearch,
+              status: 'running',
+            },
+            leads: [],
+          });
+        } catch (apifyErr) {
+          console.error('Apify polling error:', apifyErr);
+          return NextResponse.json({ search: demoSearch, leads: getDemoLeadsForSearch(searchId) });
+        }
+      }
+
+      return NextResponse.json({ search: demoSearch, leads: getDemoLeadsForSearch(searchId) });
+    }
+
     // 1. Fetch current search from DB
     const { data: search, error: fetchError } = await supabase
       .from('searches')

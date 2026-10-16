@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -9,10 +9,14 @@ import { Loader2, Eye, EyeOff, AlertCircle, ArrowLeft } from 'lucide-react';
 export default function SignupPage() {
   const router = useRouter();
 
+  useEffect(() => {
+    window.location.href = '/api/auth/demo?redirect=/dashboard';
+  }, []);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const supabase = createClient();

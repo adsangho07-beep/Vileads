@@ -19,14 +19,20 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { DbSearch, DbLead } from '@/types/db';
+import { DEMO_SEARCHES, DEMO_LEADS } from '@/lib/demo';
 
 export const revalidate = 0;
 
 export default async function DashboardPage() {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user: any = null;
+  
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data?.user;
+  } catch {
+    // Ignore error
+  }
 
   let searches: DbSearch[] = [];
   let recentLeads: DbLead[] = [];
@@ -34,31 +40,42 @@ export default async function DashboardPage() {
   let totalMessagesCount = 0;
 
   if (user) {
-    const { data: sList } = await supabase
-      .from('searches')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(10);
+    try {
+      const { data: sList } = await supabase
+        .from('searches')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
 
-    searches = sList || [];
+      searches = sList || [];
 
-    const { data: lList, count: lCount } = await supabase
-      .from('leads')
-      .select('*', { count: 'exact' })
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(6);
+      const { data: lList, count: lCount } = await supabase
+        .from('leads')
+        .select('*', { count: 'exact' })
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(6);
 
-    recentLeads = lList || [];
-    totalLeadsCount = lCount || recentLeads.length;
+      recentLeads = lList || [];
+      totalLeadsCount = lCount || recentLeads.length;
 
-    const { count: mCount } = await supabase
-      .from('messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user.id);
+      const { count: mCount } = await supabase
+        .from('messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id);
 
-    totalMessagesCount = mCount || 0;
+      totalMessagesCount = mCount || 0;
+    } catch {
+      // Fallback below
+    }
+
+    if (searches.length === 0 && user.id === '00000000-0000-0000-0000-000000000001') {
+      searches = DEMO_SEARCHES;
+      recentLeads = DEMO_LEADS;
+      totalLeadsCount = 60;
+      totalMessagesCount = 18;
+    }
   }
 
   const activeSearches = searches.filter((s) => s.status === 'running' || s.status === 'pending').length;

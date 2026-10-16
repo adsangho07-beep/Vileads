@@ -25,16 +25,16 @@ export default function HomePage() {
           {/* Right: Auth Buttons */}
           <div className="flex items-center gap-2 md:gap-4 shrink-0">
             <Link 
-              href="/login"
+              href="/dashboard"
               className="text-xs md:text-sm font-semibold text-slate-700 hover:text-brand-600 transition-colors"
             >
-              Connexion
+              Dashboard
             </Link>
             <Link 
-              href="/signup"
+              href="/dashboard"
               className="text-xs md:text-sm font-semibold bg-brand-600 text-white px-3 md:px-5 py-2 md:py-2.5 rounded-full hover:bg-brand-700 transition-colors shadow-md shadow-brand-500/20"
             >
-              Commencer
+              Accéder au Dashboard
             </Link>
           </div>
         </div>
@@ -91,10 +91,10 @@ export default function HomePage() {
         {/* Central Button below hero */}
         <div className="mt-10 md:mt-16 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-300">
           <Link 
-            href="/signup"
+            href="/dashboard"
             className="inline-flex items-center justify-center px-8 md:px-10 py-3.5 md:py-4 rounded-full bg-brand-600 text-white font-bold text-base md:text-lg hover:bg-brand-700 transition-all shadow-xl shadow-brand-500/30 hover:shadow-brand-500/50 hover:scale-105 active:scale-95"
           >
-            Commencer maintenant
+            Accéder directement au dashboard
           </Link>
         </div>
       </main>

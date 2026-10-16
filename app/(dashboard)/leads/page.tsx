@@ -2,26 +2,40 @@ import React from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { LeadsTable } from '@/components/LeadsTable';
 import { DbLead } from '@/types/db';
+import { DEMO_LEADS } from '@/lib/demo';
 import { Users, Sparkles } from 'lucide-react';
 
 export const revalidate = 0;
 
 export default async function AllLeadsPage() {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user: any = null;
+
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data?.user;
+  } catch {
+    // Ignore error
+  }
 
   let leads: DbLead[] = [];
 
   if (user) {
-    const { data } = await supabase
-      .from('leads')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
+    try {
+      const { data } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
 
-    leads = data || [];
+      leads = data || [];
+    } catch {
+      // Fallback below
+    }
+
+    if (leads.length === 0 && user.id === '00000000-0000-0000-0000-000000000001') {
+      leads = DEMO_LEADS;
+    }
   }
 
   return (

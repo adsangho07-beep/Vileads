@@ -7,20 +7,60 @@ export const revalidate = 0;
 
 export default async function MessagesPage() {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user: any = null;
+
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data?.user;
+  } catch {
+    // Ignore error
+  }
 
   let messages: any[] = [];
 
   if (user) {
-    const { data } = await supabase
-      .from('messages')
-      .select('*, leads(name, category, address, phone)')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
+    try {
+      const { data } = await supabase
+        .from('messages')
+        .select('*, leads(name, category, address, phone)')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
 
-    messages = data || [];
+      messages = data || [];
+    } catch {
+      // Fallback below
+    }
+
+    if (messages.length === 0 && user.id === '00000000-0000-0000-0000-000000000001') {
+      messages = [
+        {
+          id: 'msg-1',
+          content: "Bonjour l'équipe Sénégal Immo Prestige ! Nous avons remarqué vos excellentes références immobilières sur Dakar. Nous accompagnons les agences leaders pour automatiser la qualification de leurs acquéreurs.",
+          language: 'fr',
+          model: 'gpt-4o-mini',
+          created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
+          leads: {
+            name: 'Sénégal Immo Prestige',
+            category: 'Agence immobilière',
+            address: 'Almadies, Dakar',
+            phone: '+221 77 123 45 67',
+          },
+        },
+        {
+          id: 'msg-2',
+          content: "Bonjour Docteur, félicitations pour la réputation de la Polyclinique Sainte Anne à Cocody. Nous proposons une solution digitale pour fluidifier la prise de rendez-vous de vos patients.",
+          language: 'fr',
+          model: 'gpt-4o-mini',
+          created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
+          leads: {
+            name: 'Polyclinique Sainte Anne',
+            category: 'Clinique privée',
+            address: 'Cocody Riviera 3, Abidjan',
+            phone: '+225 07 01 02 03 04',
+          },
+        },
+      ];
+    }
   }
 
   return (

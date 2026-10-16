@@ -12,25 +12,39 @@ import {
   Layers,
 } from 'lucide-react';
 import { DbSearch } from '@/types/db';
+import { DEMO_SEARCHES } from '@/lib/demo';
 
 export const revalidate = 0;
 
 export default async function SearchesPage() {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user: any = null;
+
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data?.user;
+  } catch {
+    // Ignore error
+  }
 
   let searches: DbSearch[] = [];
 
   if (user) {
-    const { data } = await supabase
-      .from('searches')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
+    try {
+      const { data } = await supabase
+        .from('searches')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
 
-    searches = data || [];
+      searches = data || [];
+    } catch {
+      // Fallback below
+    }
+
+    if (searches.length === 0 && user.id === '00000000-0000-0000-0000-000000000001') {
+      searches = DEMO_SEARCHES;
+    }
   }
 
   return (

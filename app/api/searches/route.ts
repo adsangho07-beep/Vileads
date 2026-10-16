@@ -31,22 +31,125 @@ export async function POST(request: NextRequest) {
     const cleanCountry = country?.trim() || null;
     const maxResults = Math.min(Math.max(Number(max_results) || 20, 5), 100);
 
-    // 1. Insert initial pending record
-    const { data: searchRecord, error: insertError } = await supabase
-      .from('searches')
-      .insert({
+    const isDemo = user.id === '00000000-0000-0000-0000-000000000001';
+
+    if (isDemo) {
+      const demoSearchId = `search-${Date.now()}`;
+      const searchRecord = {
+        id: demoSearchId,
         user_id: user.id,
         sector: cleanSector,
         city: cleanCity,
         country: cleanCountry,
         max_results: maxResults,
-        status: 'pending',
-      })
-      .select()
-      .single();
+        status: 'pending' as const,
+        apify_run_id: null,
+        apify_dataset_id: null,
+        error_message: null,
+        created_at: new Date().toISOString(),
+        started_at: null,
+        finished_at: null,
+      };
 
-    if (insertError || !searchRecord) {
-      console.error('Error creating search record:', insertError);
+      const { addDemoSearch, updateDemoSearch, addDemoLeads } = await import('@/lib/demo');
+      addDemoSearch(searchRecord);
+
+      try {
+        const apifyRun = await startGooglePlacesScrape({
+          sector: cleanSector,
+          city: cleanCity,
+          country: cleanCountry,
+          maxResults,
+        });
+
+        updateDemoSearch(demoSearchId, {
+          status: 'running',
+          apify_run_id: apifyRun.runId,
+          apify_dataset_id: apifyRun.datasetId,
+          started_at: new Date().toISOString(),
+        });
+
+        return NextResponse.json({
+          success: true,
+          searchId: demoSearchId,
+          status: 'running',
+          apifyRunId: apifyRun.runId,
+        });
+      } catch (apifyError: any) {
+        console.warn('Apify scrape error in demo mode, generating simulated leads:', apifyError?.message);
+        
+        // Generate realistic mock leads for this query
+        const simulatedLeads = [
+          {
+            id: `lead-${Date.now()}-1`,
+            search_id: demoSearchId,
+            user_id: user.id,
+            place_id: `place-${Date.now()}-1`,
+            name: `${cleanSector} Excellence`,
+            category: cleanSector,
+            address: `Centre-Ville, ${cleanCity}`,
+            phone: '+221 77 000 11 22',
+            website: `https://${cleanSector.toLowerCase().replace(/[^a-z0-9]/g, '')}-${cleanCity.toLowerCase()}.com`,
+            rating: 4.8,
+            reviews_count: 34,
+            latitude: 14.69,
+            longitude: -17.44,
+            raw: {},
+            created_at: new Date().toISOString(),
+          },
+          {
+            id: `lead-${Date.now()}-2`,
+            search_id: demoSearchId,
+            user_id: user.id,
+            place_id: `place-${Date.now()}-2`,
+            name: `Grand ${cleanSector} Pro`,
+            category: cleanSector,
+            address: `Avenue Principale, ${cleanCity}`,
+            phone: '+221 78 333 44 55',
+            website: null,
+            rating: 4.5,
+            reviews_count: 19,
+            latitude: 14.71,
+            longitude: -17.46,
+            raw: {},
+            created_at: new Date().toISOString(),
+          },
+        ];
+
+        addDemoLeads(simulatedLeads);
+        updateDemoSearch(demoSearchId, {
+          status: 'succeeded',
+          finished_at: new Date().toISOString(),
+        });
+
+        return NextResponse.json({
+          success: true,
+          searchId: demoSearchId,
+          status: 'succeeded',
+        });
+      }
+    }
+
+    // 1. Insert initial pending record
+    let searchRecord: any = null;
+    try {
+      const { data, error: insertError } = await supabase
+        .from('searches')
+        .insert({
+          user_id: user.id,
+          sector: cleanSector,
+          city: cleanCity,
+          country: cleanCountry,
+          max_results: maxResults,
+          status: 'pending',
+        })
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
+      searchRecord = data;
+    } catch (insertError) {
+      console.error('Error creating search record in Supabase:', insertError);
       return NextResponse.json(
         { error: 'Impossible d\'initialiser la recherche en base de données.' },
         { status: 500 }

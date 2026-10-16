@@ -1,21 +1,26 @@
 'use client';
 
-import React, { useState, Suspense } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { Loader2, Eye, EyeOff, AlertCircle, Sparkles } from 'lucide-react';
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get('redirect') || '/dashboard';
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('adamasangho07@gmail.com');
+  const [password, setPassword] = useState('@91180046As');
   const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Automatically redirect into the dashboard
+    window.location.href = `/api/auth/demo?redirect=${encodeURIComponent(redirect)}`;
+  }, [redirect]);
 
   const supabase = createClient();
 
@@ -24,13 +29,51 @@ function LoginForm() {
     setLoading(true);
     setError(null);
 
+    const cleanEmail = email.trim();
+
+    // Check demo credentials directly
+    if (cleanEmail.toLowerCase() === 'adamasangho07@gmail.com' && password === '@91180046As') {
+      try {
+        const res = await fetch('/api/auth/demo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: cleanEmail, password }),
+        });
+        const result = await res.json();
+        if (result.success) {
+          window.location.href = redirect;
+          return;
+        } else {
+          throw new Error(result.error || 'Erreur d\'authentification');
+        }
+      } catch (demoErr: any) {
+        setError(demoErr.message || 'Erreur lors de la connexion.');
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
       const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: cleanEmail,
         password,
       });
 
       if (authError) {
+        // Fallback check if demo credentials
+        if (cleanEmail.toLowerCase() === 'adamasangho07@gmail.com' && password === '@91180046As') {
+          const res = await fetch('/api/auth/demo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: cleanEmail, password }),
+          });
+          const result = await res.json();
+          if (result.success) {
+            window.location.href = redirect;
+            return;
+          }
+        }
+
         if (authError.message.toLowerCase().includes('email not confirmed')) {
           throw new Error('Veuillez confirmer votre adresse email.');
         }
@@ -68,6 +111,21 @@ function LoginForm() {
             <span>{error}</span>
           </div>
         )}
+
+        <div className="mb-6">
+          <Link
+            href={`/api/auth/demo?redirect=${encodeURIComponent(redirect)}`}
+            className="w-full flex items-center justify-center gap-2 py-4 px-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-semibold text-[15px] shadow-sm shadow-emerald-500/20 transition-all hover:shadow-md hover:scale-[1.01] active:scale-[0.99]"
+          >
+            <Sparkles className="w-5 h-5 text-emerald-100" />
+            <span>Accéder au Dashboard (1 clic)</span>
+          </Link>
+          <div className="relative flex py-4 items-center">
+            <div className="flex-grow border-t border-slate-200"></div>
+            <span className="flex-shrink mx-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">ou avec mot de passe</span>
+            <div className="flex-grow border-t border-slate-200"></div>
+          </div>
+        </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div className="space-y-4">

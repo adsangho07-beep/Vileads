@@ -20,16 +20,28 @@ export async function POST(
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
     }
 
-    // 1. Fetch and verify ownership of the lead
-    const { data: lead, error: leadError } = await supabase
-      .from('leads')
-      .select('*')
-      .eq('id', leadId)
-      .eq('user_id', user.id)
-      .single();
+    const { getDemoLead, addDemoMessage, getDemoMessagesForLead } = await import('@/lib/demo');
+    const isDemo = user.id === '00000000-0000-0000-0000-000000000001';
 
-    if (leadError || !lead) {
-      return NextResponse.json({ error: 'Lead introuvable ou accès non autorisé.' }, { status: 404 });
+    // 1. Fetch and verify ownership of the lead
+    let lead: any = isDemo ? getDemoLead(leadId) : null;
+    if (!lead) {
+      const { data, error: leadError } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('id', leadId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (leadError || !data) {
+        // Fallback search in demo store
+        lead = getDemoLead(leadId);
+        if (!lead) {
+          return NextResponse.json({ error: 'Lead introuvable ou accès non autorisé.' }, { status: 404 });
+        }
+      } else {
+        lead = data;
+      }
     }
 
     // TODO: quota check here (e.g. check user AI credits)
@@ -90,35 +102,39 @@ export async function POST(
     }
 
     // 3. Save to public.messages (append-only)
-    const { data: savedMessage, error: messageError } = await supabase
-      .from('messages')
-      .insert({
-        lead_id: lead.id,
-        user_id: user.id,
-        language,
-        channel,
-        tone,
-        content: generatedContent,
-        model: usedModel,
-      })
-      .select()
-      .single();
+    const newMessageObj = {
+      id: `msg-${Date.now()}`,
+      lead_id: lead.id,
+      user_id: user.id,
+      language,
+      channel,
+      tone,
+      content: generatedContent,
+      model: usedModel,
+      created_at: new Date().toISOString(),
+    };
 
-    if (messageError) {
-      console.error('Error saving message in DB:', messageError);
+    if (isDemo) {
+      addDemoMessage(newMessageObj);
+    } else {
+      try {
+        await supabase.from('messages').insert({
+          lead_id: lead.id,
+          user_id: user.id,
+          language,
+          channel,
+          tone,
+          content: generatedContent,
+          model: usedModel,
+        });
+      } catch (err) {
+        addDemoMessage(newMessageObj);
+      }
     }
 
     return NextResponse.json({
       success: true,
-      message: savedMessage || {
-        lead_id: lead.id,
-        language,
-        channel,
-        tone,
-        content: generatedContent,
-        model: usedModel,
-        created_at: new Date().toISOString(),
-      },
+      message: newMessageObj,
     });
   } catch (err: any) {
     console.error('Error in POST /api/leads/[id]/message:', err);

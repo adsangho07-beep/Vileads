@@ -27,9 +27,22 @@ import {
   ArrowDownRight,
   Gift,
   ShoppingBag,
+  CreditCard,
+  CheckCircle2,
+  ShieldCheck,
+  SmartphoneNfc,
+  Receipt,
+  ArrowRight,
+  X,
 } from 'lucide-react';
 import { MessageChannel, MessageTone, DbCreditTransaction } from '@/types/db';
-import { CREDIT_PACKAGES, LEAD_SEARCH_CREDIT_COST } from '@/lib/credits';
+import { CREDIT_PACKAGES, LEAD_SEARCH_CREDIT_COST, formatPriceCfa, getCreditPackage, CreditPackage } from '@/lib/credits';
+import {
+  SUPPORTED_COUNTRIES,
+  getCountryPaymentConfig,
+  PaymentOperator,
+  CountryPaymentConfig,
+} from '@/lib/payment-methods';
 
 export default function SettingsPage() {
   const supabase = createClient();
@@ -43,11 +56,17 @@ export default function SettingsPage() {
   const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Credits Tab
+  // Credits Tab State
   const [creditBalance, setCreditBalance] = useState<number | null>(null);
   const [creditTransactions, setCreditTransactions] = useState<DbCreditTransaction[]>([]);
-  const [buyingPackageId, setBuyingPackageId] = useState<string | null>(null);
   const [creditNotice, setCreditNotice] = useState<string | null>(null);
+
+  // Checkout Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedPackage, setSelectedPackage] = useState<CreditPackage>(CREDIT_PACKAGES[1]);
+  const [selectedCountryCode, setSelectedCountryCode] = useState<string>('SN');
+  const [selectedMethodId, setSelectedMethodId] = useState<string>('orange_money');
+  const [buyingLoading, setBuyingLoading] = useState(false);
 
   // Profile Form
   const [fullName, setFullName] = useState('');
@@ -91,49 +110,84 @@ export default function SettingsPage() {
         setCreditTransactions(data.transactions || []);
       }
     } catch {
-      // silent — the balance simply won't refresh this cycle
+      // silent
     }
   };
 
   useEffect(() => {
     loadCredits();
 
-    // Coming back from a Moneroo checkout redirect — the webhook may still be
-    // in flight, so poll briefly to pick up the freshly granted credits.
+    // Returning from checkout redirect
     const paymentStatus = searchParams.get('paymentStatus');
-    if (searchParams.get('purchase') || paymentStatus) {
-      setCreditNotice(
-        paymentStatus === 'cancelled' || paymentStatus === 'failed'
-          ? "Le paiement n'a pas abouti."
-          : 'Paiement reçu, vérification en cours...'
-      );
-      let attempts = 0;
-      const interval = setInterval(() => {
-        attempts += 1;
-        loadCredits();
-        if (attempts >= 6) clearInterval(interval);
-      }, 3000);
-      return () => clearInterval(interval);
+    const purchaseId = searchParams.get('purchase');
+    if (purchaseId || paymentStatus) {
+      if (paymentStatus === 'cancelled' || paymentStatus === 'failed') {
+        setErrorMessage("Le paiement a été annulé ou n'a pas pu aboutir.");
+      } else {
+        setCreditNotice('Paiement validé avec succès ! Vos crédits sont en cours de mise à jour...');
+        let attempts = 0;
+        const interval = setInterval(() => {
+          attempts += 1;
+          loadCredits();
+          if (attempts >= 6) {
+            clearInterval(interval);
+            setCreditNotice(null);
+          }
+        }, 2500);
+        return () => clearInterval(interval);
+      }
     }
-  }, []);
+  }, [searchParams]);
 
-  const handleBuyCredits = async (packageId: string) => {
-    setBuyingPackageId(packageId);
+  // Current country configuration and available methods
+  const currentCountryConfig: CountryPaymentConfig = getCountryPaymentConfig(selectedCountryCode);
+  const availableMethods: PaymentOperator[] = currentCountryConfig.methods;
+
+  // Auto-switch selected payment method if not supported in the selected country
+  useEffect(() => {
+    const isSupported = availableMethods.some((m) => m.id === selectedMethodId);
+    if (!isSupported && availableMethods.length > 0) {
+      setSelectedMethodId(availableMethods[0].id);
+    }
+  }, [selectedCountryCode, availableMethods, selectedMethodId]);
+
+  const selectedMethod =
+    availableMethods.find((m) => m.id === selectedMethodId) || availableMethods[0] || {
+      id: 'orange_money',
+      name: 'Orange Money',
+      category: 'mobile_money' as const,
+    };
+
+  const handleOpenCheckoutModal = (pkg: CreditPackage) => {
+    setSelectedPackage(pkg);
+    setIsModalOpen(true);
+    setErrorMessage(null);
+  };
+
+  const handleCheckout = async () => {
+    setBuyingLoading(true);
     setErrorMessage(null);
     try {
       const res = await fetch('/api/credits/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ packageId }),
+        body: JSON.stringify({
+          packageId: selectedPackage.id,
+          country: selectedCountryCode,
+          paymentMode: selectedMethod.category,
+          paymentOperator: selectedMethod.id,
+        }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
-        throw new Error(data.error || "Impossible de lancer l'achat de crédits.");
+        throw new Error(data.error || "Impossible d'initialiser le paiement.");
       }
-      window.location.href = data.checkoutUrl;
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+      }
     } catch (err: any) {
       setErrorMessage(err.message || "Erreur lors du lancement de l'achat.");
-      setBuyingPackageId(null);
+      setBuyingLoading(false);
     }
   };
 
@@ -201,7 +255,7 @@ export default function SettingsPage() {
   const tabs = [
     { id: 'profile', label: 'Profil & Compte', icon: User },
     { id: 'credits', label: 'Crédits', icon: Coins },
-    { id: 'integrations', label: 'Intégrations & APIs', icon: Key },
+    { id: 'integrations', label: 'Intégrations & Passerelles', icon: Key },
     { id: 'preferences', label: 'Préférences Prospection', icon: Sliders },
     { id: 'security', label: 'Sécurité', icon: Shield },
   ];
@@ -217,7 +271,7 @@ export default function SettingsPage() {
           <span>Paramètres du compte</span>
         </h1>
         <p className="text-xs sm:text-sm text-slate-500 mt-1">
-          Gérez votre profil, vos clés d'intégration, vos préférences de prospection et la sécurité
+          Gérez votre profil, vos crédits de prospection, vos clés et vos préférences
         </p>
       </div>
 
@@ -340,13 +394,13 @@ export default function SettingsPage() {
               </div>
 
               {creditNotice && (
-                <div className="p-3.5 rounded-2xl bg-blue-50 border border-blue-200 text-blue-800 text-xs flex items-center gap-2">
-                  <RefreshCw className="w-4 h-4 shrink-0 animate-spin" />
-                  <span>{creditNotice}</span>
+                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 animate-in fade-in duration-200">
+                  <RefreshCw className="w-4 h-4 shrink-0 animate-spin text-emerald-600" />
+                  <span className="font-medium">{creditNotice}</span>
                 </div>
               )}
 
-              {/* Balance */}
+              {/* Balance Card */}
               <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-md shadow-amber-500/20 flex items-center justify-between">
                 <div>
                   <div className="text-[11px] uppercase tracking-wider font-bold text-amber-100">Solde actuel</div>
@@ -358,9 +412,13 @@ export default function SettingsPage() {
                 <Coins className="w-10 h-10 text-amber-200/80" />
               </div>
 
-              {/* Packages */}
+              {/* Packages List */}
               <div className="space-y-3">
-                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Acheter des crédits</h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Acheter des crédits</h4>
+                  <span className="text-[11px] font-semibold text-blue-600">Tarifs en Francs CFA</span>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {CREDIT_PACKAGES.map((pkg) => (
                     <div
@@ -374,29 +432,35 @@ export default function SettingsPage() {
                       )}
                       <div>
                         <div className="text-xs font-semibold text-slate-500">{pkg.label}</div>
-                        <div className="text-2xl font-black text-slate-900 mt-1">{pkg.credits} <span className="text-sm font-semibold text-slate-400">crédits</span></div>
-                        <div className="text-sm font-bold text-blue-600 mt-1">{pkg.amountXof.toLocaleString('fr-FR')} XOF</div>
+                        <div className="text-2xl font-black text-slate-900 mt-1">
+                          {pkg.credits} <span className="text-sm font-semibold text-slate-400">crédits</span>
+                        </div>
+                        <div className="text-base font-black text-blue-600 mt-1">
+                          {formatPriceCfa(pkg.amount)}
+                        </div>
+                        {pkg.description && (
+                          <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                            {pkg.description}
+                          </p>
+                        )}
                       </div>
                       <button
                         type="button"
-                        onClick={() => handleBuyCredits(pkg.id)}
-                        disabled={buyingPackageId !== null}
-                        className="mt-4 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm transition-all active:scale-95 disabled:opacity-50"
+                        onClick={() => handleOpenCheckoutModal(pkg)}
+                        className="mt-4 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm transition-all active:scale-95"
                       >
-                        {buyingPackageId === pkg.id ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <ShoppingBag className="w-3.5 h-3.5" />
-                        )}
-                        <span>Acheter</span>
+                        <ShoppingBag className="w-3.5 h-3.5" />
+                        <span>Acheter ({formatPriceCfa(pkg.amount)})</span>
                       </button>
                     </div>
                   ))}
                 </div>
-                <p className="text-[11px] text-slate-400">Paiement sécurisé via Moneroo (Mobile Money & carte bancaire).</p>
+                <p className="text-[11px] text-slate-400">
+                  Paiement sécurisé via Bictorys &amp; Moneroo (Orange Money, Wave, Carte bancaire, MTN, Moov).
+                </p>
               </div>
 
-              {/* Transaction history */}
+              {/* Transaction History */}
               <div className="space-y-2 pt-3 border-t border-slate-100">
                 <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Historique</h4>
                 {creditTransactions.length === 0 ? (
@@ -405,14 +469,27 @@ export default function SettingsPage() {
                   <div className="space-y-1.5 max-h-72 overflow-y-auto">
                     {creditTransactions.map((tx) => {
                       const isPositive = tx.amount > 0;
-                      const Icon = tx.type === 'signup_bonus' ? Gift : tx.type === 'purchase' ? ShoppingBag : tx.type === 'refund' ? RefreshCw : Zap;
+                      const Icon =
+                        tx.type === 'signup_bonus'
+                          ? Gift
+                          : tx.type === 'purchase'
+                          ? ShoppingBag
+                          : tx.type === 'refund'
+                          ? RefreshCw
+                          : Zap;
                       return (
                         <div
                           key={tx.id}
                           className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-100"
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <div className={`p-1.5 rounded-lg shrink-0 ${isPositive ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                            <div
+                              className={`p-1.5 rounded-lg shrink-0 ${
+                                isPositive
+                                  ? 'bg-emerald-100 text-emerald-600'
+                                  : 'bg-rose-100 text-rose-600'
+                              }`}
+                            >
                               <Icon className="w-3.5 h-3.5" />
                             </div>
                             <div className="min-w-0">
@@ -424,8 +501,16 @@ export default function SettingsPage() {
                               </div>
                             </div>
                           </div>
-                          <div className={`flex items-center gap-1 text-xs font-bold shrink-0 ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
-                            {isPositive ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
+                          <div
+                            className={`flex items-center gap-1 text-xs font-bold shrink-0 ${
+                              isPositive ? 'text-emerald-600' : 'text-rose-600'
+                            }`}
+                          >
+                            {isPositive ? (
+                              <ArrowUpRight className="w-3.5 h-3.5" />
+                            ) : (
+                              <ArrowDownRight className="w-3.5 h-3.5" />
+                            )}
                             {isPositive ? '+' : ''}
                             {tx.amount}
                           </div>
@@ -447,6 +532,26 @@ export default function SettingsPage() {
               </div>
 
               <div className="space-y-4">
+                {/* Bictorys Gateway Status */}
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2.5 rounded-xl bg-orange-100 text-orange-700">
+                      <SmartphoneNfc className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm text-slate-900">Passerelle Bictorys (Mobile Money &amp; Cartes)</h4>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Orange Money, Wave, Free Money, MTN MoMo, Moov Money, Carte bancaire
+                      </p>
+                      <span className="text-[11px] font-medium text-slate-400">Devise : Francs CFA (XOF / XAF)</span>
+                    </div>
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Actif
+                  </span>
+                </div>
+
                 {/* Supabase Status */}
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-start justify-between gap-4">
                   <div className="flex items-start gap-3">
@@ -455,7 +560,7 @@ export default function SettingsPage() {
                     </div>
                     <div>
                       <h4 className="font-bold text-sm text-slate-900">Base de Données &amp; Auth (Supabase)</h4>
-                      <p className="text-xs text-slate-500 mt-0.5">Tables Searches, Leads &amp; Messages avec RLS active</p>
+                      <p className="text-xs text-slate-500 mt-0.5">Tables Searches, Leads, Messages &amp; Ledger Crédits</p>
                       <span className="text-[11px] font-medium text-slate-400">Projet ID : ucywkgrrqhaqplpobouk</span>
                     </div>
                   </div>
@@ -676,6 +781,248 @@ export default function SettingsPage() {
           )}
         </div>
       </div>
+
+      {/* CHECKOUT MODAL: PAYS, MODES DE PAIEMENT & DEVIS EN FCFA */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-blue-600 text-white shadow-sm">
+                  <ShoppingBag className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-900">
+                    Finaliser l'achat de crédits
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Paiement sécurisé via Mobile Money ou Carte bancaire
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body (Scrollable) */}
+            <div className="p-6 space-y-5 overflow-y-auto">
+              {/* Selected Package Banner */}
+              <div className="p-3.5 rounded-2xl bg-blue-50/80 border border-blue-100 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Pack sélectionné</span>
+                  <div className="text-sm font-bold text-slate-900">{selectedPackage.label}</div>
+                  <div className="text-xs text-slate-500">{selectedPackage.credits} crédits de prospection</div>
+                </div>
+                <div className="text-right">
+                  <span className="text-lg font-black text-blue-700">
+                    {formatPriceCfa(selectedPackage.amount)}
+                  </span>
+                  {selectedPackage.badge && (
+                    <div className="text-[10px] font-bold text-emerald-600">{selectedPackage.badge} de remise</div>
+                  )}
+                </div>
+              </div>
+
+              {/* 1. Country Selection */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="w-4 h-4 rounded-full bg-blue-600 text-white inline-flex items-center justify-center text-[10px] font-black">1</span>
+                    <span>Choisissez votre pays</span>
+                  </label>
+                  <span className="text-[11px] text-slate-400">Pour afficher les opérateurs locaux</span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {SUPPORTED_COUNTRIES.map((c) => {
+                    const isSelected = selectedCountryCode === c.code;
+                    return (
+                      <button
+                        key={c.code}
+                        type="button"
+                        onClick={() => setSelectedCountryCode(c.code)}
+                        className={`flex items-center gap-2 p-2 rounded-xl border text-left transition-all ${
+                          isSelected
+                            ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-bold shadow-sm ring-1 ring-blue-500/30'
+                            : 'border-slate-200/80 bg-white hover:bg-slate-50 text-slate-700'
+                        }`}
+                      >
+                        <span className="text-lg leading-none">{c.flag}</span>
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-semibold truncate">{c.name}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. Payment Method Selection */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="w-4 h-4 rounded-full bg-blue-600 text-white inline-flex items-center justify-center text-[10px] font-black">2</span>
+                    <span>Mode de Paiement ({currentCountryConfig.name})</span>
+                  </label>
+                  <span className="text-[10px] font-medium text-emerald-600 flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    Paiement Sécurisé Bictorys
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {availableMethods.map((method) => {
+                    const isSelected = selectedMethodId === method.id;
+                    const isOrange = method.id === 'orange_money';
+                    const isWave = method.id === 'wave';
+                    const isCard = method.category === 'card';
+                    const isMtn = method.id === 'mtn_momo';
+                    const isMoov = method.id === 'moov_money';
+
+                    return (
+                      <div
+                        key={method.id}
+                        onClick={() => setSelectedMethodId(method.id)}
+                        className={`p-3 rounded-2xl border-2 transition-all cursor-pointer flex items-center justify-between gap-2.5 ${
+                          isSelected
+                            ? 'border-blue-600 bg-blue-50/60 shadow-sm ring-1 ring-blue-600/30'
+                            : 'border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 shadow-sm ${
+                              isOrange
+                                ? 'bg-orange-500 text-white'
+                                : isWave
+                                ? 'bg-sky-500 text-white'
+                                : isMtn
+                                ? 'bg-amber-400 text-slate-900 font-black'
+                                : isMoov
+                                ? 'bg-blue-600 text-white'
+                                : isCard
+                                ? 'bg-slate-900 text-white'
+                                : 'bg-slate-700 text-white'
+                            }`}
+                          >
+                            {isCard ? (
+                              <CreditCard className="w-4 h-4" />
+                            ) : (
+                              <SmartphoneNfc className="w-4 h-4" />
+                            )}
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-bold text-slate-900 truncate">
+                                {method.name}
+                              </span>
+                              {method.badge && (
+                                <span className="text-[8px] font-bold px-1 py-0.2 rounded bg-amber-100 text-amber-800">
+                                  {method.badge}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-slate-400 truncate">
+                              {method.description}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0">
+                          <div
+                            className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                              isSelected
+                                ? 'border-blue-600 bg-blue-600 text-white'
+                                : 'border-slate-300 bg-white'
+                            }`}
+                          >
+                            {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 3. Devis Récapitulatif en Francs CFA */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-2.5">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200/70">
+                  <div className="flex items-center gap-1.5">
+                    <Receipt className="w-3.5 h-3.5 text-blue-600" />
+                    <h4 className="text-[11px] font-extrabold text-slate-800 uppercase tracking-wider">
+                      Devis &amp; Récapitulatif
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-500">
+                    {currentCountryConfig.flag} {currentCountryConfig.name}
+                  </span>
+                </div>
+
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex justify-between items-center text-slate-600">
+                    <span>Pack de crédits :</span>
+                    <span className="font-bold text-slate-900">{selectedPackage.label} ({selectedPackage.credits} crédits)</span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-600">
+                    <span>Mode de paiement :</span>
+                    <span className="font-bold text-blue-600">{selectedMethod.name}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-600">
+                    <span>Frais de transaction :</span>
+                    <span className="font-bold text-emerald-600">Offerts (0 FCFA)</span>
+                  </div>
+                  <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
+                    <span className="text-xs font-extrabold text-slate-900">Total Devis (FCFA) :</span>
+                    <span className="text-lg font-black text-blue-600">
+                      {formatPriceCfa(selectedPackage.amount)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-slate-50/70 border-t border-slate-100 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 font-semibold text-xs transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleCheckout}
+                disabled={buyingLoading}
+                className="flex-1 inline-flex items-center justify-center gap-2 py-3 px-5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/25 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {buyingLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Redirection vers le paiement...</span>
+                  </>
+                ) : (
+                  <>
+                    <ShoppingBag className="w-4 h-4" />
+                    <span>
+                      Payer {formatPriceCfa(selectedPackage.amount)} via {selectedMethod.name}
+                    </span>
+                    <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

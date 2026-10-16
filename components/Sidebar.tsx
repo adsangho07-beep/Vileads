@@ -70,7 +70,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ userEmail, userName }) => {
   }, [pathname]);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    try {
+      await fetch('/api/auth/demo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'logout' }),
+      });
+      await supabase.auth.signOut();
+    } catch {
+      // Ignore errors on logout
+    }
     window.location.href = '/login';
   };
 
